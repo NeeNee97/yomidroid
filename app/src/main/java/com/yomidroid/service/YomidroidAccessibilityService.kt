@@ -1014,6 +1014,9 @@ class YomidroidAccessibilityService : AccessibilityService() {
             it.onDismiss()
         }
 
+        ocrEditWindow?.dismiss()
+        ocrEditWindow = null
+
         // Remove the container (which holds both overlayView and any WebView popup)
         overlayContainer?.let { container ->
             try {
@@ -1255,7 +1258,7 @@ class YomidroidAccessibilityService : AccessibilityService() {
                                     computeCorrectionRanking(ch, originalMatched)
                                 },
                                 onEditOcrInApp = {
-                                    handleEditOcrInApp(entries, ocrResult.text, originalMatched, textBounds)
+                                    handleEditOcr(entries, ocrResult, unifiedIndex, textBounds, originalMatched)
                                 },
                                 onLookupTerm = { target ->
                                     handleCorrection(target, ocrResult, unifiedIndex, textBounds, originalMatched)
@@ -1464,7 +1467,7 @@ class YomidroidAccessibilityService : AccessibilityService() {
                         computeCorrectionRanking(ch, originalMatched)
                     },
                     onEditOcrInApp = {
-                        handleEditOcrInApp(entries, ocrResult.text, originalMatched, textBounds)
+                        handleEditOcr(entries, ocrResult, lastLookedUpIndex, textBounds, originalMatched)
                     },
                     onLookupTerm = { target ->
                         handleCorrection(target, ocrResult, lastLookedUpIndex, textBounds, originalMatched)
@@ -1535,7 +1538,7 @@ class YomidroidAccessibilityService : AccessibilityService() {
                             computeCorrectionRanking(ch, firstEntry.matchedText)
                         },
                         onEditOcrInApp = {
-                            handleEditOcrInApp(entries, ocrResult.text, originalMatchedText, textBounds)
+                            handleEditOcr(entries, ocrResult, unifiedIndex, textBounds, originalMatchedText)
                         },
                         onLookupTerm = { target ->
                             handleCorrection(target, ocrResult, unifiedIndex, textBounds, originalMatchedText)
@@ -1543,6 +1546,93 @@ class YomidroidAccessibilityService : AccessibilityService() {
                     )
                 }
             }
+        }
+    }
+
+    private var ocrEditWindow: OcrEditWindow? = null
+
+    /**
+     * Edit the looked-up text in a small floating box on top of the page: the popup and OCR overlay
+     * step aside, the box shows a crop of the text plus a keyboard, and on Done the popup comes back
+     * with a fresh dictionary lookup. Falls back to the in-app editor if the app may not draw over
+     * other apps.
+     */
+    private fun handleEditOcr(
+        entries: List<com.yomidroid.dictionary.DictionaryEntry>,
+        ocrResult: OcrResult,
+        unifiedIndex: Int,
+        textBounds: Rect,
+        originalMatchedText: String
+    ) {
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            handleEditOcrInApp(entries, ocrResult.text, originalMatchedText, textBounds)
+            return
+        }
+        val initialText = entries.firstOrNull()?.matchedText ?: originalMatchedText
+        if (initialText.isEmpty()) return
+
+        val crop = cropScreenshotAround(textBounds)
+        overlayPopupWebView?.hide()
+        overlayContainer?.visibility = View.GONE
+
+        fun restore(text: String) {
+            overlayContainer?.visibility = View.VISIBLE
+            handleCorrection(text, ocrResult, unifiedIndex, textBounds, originalMatchedText)
+        }
+
+        ocrEditWindow?.dismiss()
+        val window = OcrEditWindow(this, windowManager)
+        ocrEditWindow = window
+        window.show(
+            initialText = initialText,
+            crop = crop,
+            onDone = { newText ->
+                ocrEditWindow = null
+                val text = newText.trim()
+                if (text.isEmpty() || text == initialText) {
+                    restore(initialText)
+                } else {
+                    serviceScope.launch {
+                        val found = dictionaryEngineRef.get()?.findTerms(text) ?: emptyList()
+                        withContext(Dispatchers.Main) {
+                            if (found.isEmpty()) {
+                                Toast.makeText(
+                                    this@YomidroidAccessibilityService,
+                                    "No dictionary match for $text",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                restore(initialText)
+                            } else {
+                                restore(text)
+                            }
+                        }
+                    }
+                }
+            },
+            onCancel = {
+                ocrEditWindow = null
+                restore(initialText)
+            }
+        )
+    }
+
+    /** Crop of the stored screenshot around [bounds] (screen coordinates), kept inside the bitmap. */
+    private fun cropScreenshotAround(bounds: Rect): Bitmap? {
+        val shot = currentScreenshot ?: return null
+        if (shot.isRecycled || screenWidth <= 0 || screenHeight <= 0) return null
+        return try {
+            val sx = shot.width.toFloat() / screenWidth
+            val sy = shot.height.toFloat() / screenHeight
+            val padX = maxOf(bounds.width() / 2, 40)
+            val padY = maxOf(bounds.height() / 2, 40)
+            val left = ((bounds.left - padX) * sx).toInt().coerceIn(0, shot.width - 1)
+            val top = ((bounds.top - padY) * sy).toInt().coerceIn(0, shot.height - 1)
+            val right = ((bounds.right + padX) * sx).toInt().coerceIn(left + 1, shot.width)
+            val bottom = ((bounds.bottom + padY) * sy).toInt().coerceIn(top + 1, shot.height)
+            Bitmap.createBitmap(shot, left, top, right - left, bottom - top)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to crop screenshot for edit window: ${e.message}")
+            null
         }
     }
 

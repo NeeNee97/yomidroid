@@ -22,6 +22,8 @@ android {
 
     defaultConfig {
         applicationId = "com.yomidroid"
+        // Personal build: installs next to the original Yomidroid instead of replacing it
+        applicationIdSuffix = ".patched"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

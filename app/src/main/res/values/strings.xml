@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Yomidroid</string>
+    <string name="app_name">Yomidroid (patched)</string>
     <string name="notification_channel_name">OCR Overlay</string>
     <string name="notification_title">Yomidroid Active</string>
     <string name="notification_text">Tap the floating button to scan text</string>

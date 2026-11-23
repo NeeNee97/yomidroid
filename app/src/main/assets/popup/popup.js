@@ -682,7 +682,7 @@ function showCorrectionSheet(originalChar) {
     close.textContent = '×';
     close.onclick = function(e) { e.stopPropagation(); dismissCorrectionSheet(); };
 
-    var kanjiInMatch = extractKanji(currentMatchedText);
+    var kanjiInMatch = extractEditable(currentMatchedText);
 
     if (originalChar == null && kanjiInMatch.length > 1) {
         // Picker step
@@ -722,12 +722,15 @@ function showCorrectionSheet(originalChar) {
             var empty = createElement('div', 'correction-empty');
             empty.textContent = 'No suggestions.';
             sheet.appendChild(empty);
+            sheet.appendChild(buildKanaPalette(focusChar));
         } else {
             var row = createElement('div', 'correction-row correction-candidates');
             for (var j = 0; j < neighbors.length; j++) {
                 row.appendChild(makeCorrectionChip(focusChar, neighbors[j], null, true));
             }
             sheet.appendChild(row);
+
+            sheet.appendChild(buildKanaPalette(focusChar));
 
             var hint = createElement('div', 'correction-hint');
             hint.textContent = 'Tip: long-press a kanji in the popup to jump straight here.';
@@ -840,7 +843,7 @@ function renderCorrectionToolbar() {
     var existing = document.getElementById('correction-toolbar');
     if (existing) existing.remove();
     if (!currentMatchedText) return;
-    var kanjiInMatch = extractKanji(currentMatchedText);
+    var kanjiInMatch = extractEditable(currentMatchedText);
     if (kanjiInMatch.length === 0) return;
 
     var bar = createElement('div', 'correction-toolbar');
@@ -884,6 +887,66 @@ function renderCorrectionToolbar() {
     bar.appendChild(editAppBtn);
 
     document.body.insertBefore(bar, document.body.firstChild);
+}
+
+function isKanaChar(ch) {
+    var code = ch.charCodeAt(0);
+    return code >= 0x3041 && code <= 0x30FF;
+}
+
+// Kanji and kana: anything the user may want to fix after OCR.
+function extractEditable(text) {
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < text.length; i++) {
+        var ch = text[i];
+        if ((isKanjiChar(ch) || isKanaChar(ch)) && !seen[ch]) { out.push(ch); seen[ch] = true; }
+    }
+    return out;
+}
+
+var KANA_ROWS = [
+    ['あいうえお', 'かきくけこ', 'さしすせそ', 'たちつてと', 'なにぬねの',
+     'はひふへほ', 'まみむめも', 'や ゆ よ', 'らりるれろ', 'わ を ん'],
+    ['アイウエオ', 'カキクケコ', 'サシスセソ', 'タチツテト', 'ナニヌネノ',
+     'ハヒフヘホ', 'マミムメモ', 'ヤ ユ ヨ', 'ラリルレロ', 'ワ ヲ ン']
+];
+// Kana whose strokes OCR often splits apart; highlighted in the palette.
+var KANA_PRIORITY = 'うこたなにりけふいはほまンシツソリニミラルテハナケホ';
+
+// Collapsible palette of every kana, used to replace the selected character.
+function buildKanaPalette(focusChar) {
+    var details = createElement('details', 'correction-kana');
+    var summary = createElement('summary', 'correction-kana-summary');
+    summary.textContent = 'All kana';
+    details.appendChild(summary);
+    details.addEventListener('toggle', function() { reportHeight(); });
+    for (var b = 0; b < KANA_ROWS.length; b++) {
+        var rows = KANA_ROWS[b];
+        for (var r = 0; r < rows.length; r++) {
+            var row = createElement('div', 'correction-row');
+            for (var c = 0; c < rows[r].length; c++) {
+                var ch = rows[r][c];
+                if (ch === ' ') continue;
+                row.appendChild(makeKanaPaletteChip(focusChar, ch));
+            }
+            details.appendChild(row);
+        }
+    }
+    return details;
+}
+
+function makeKanaPaletteChip(originalChar, newChar) {
+    var chip = createElement('button', 'correction-chip');
+    var glyph = createElement('span', 'correction-chip-glyph');
+    glyph.textContent = newChar;
+    chip.appendChild(glyph);
+    if (KANA_PRIORITY.indexOf(newChar) >= 0) chip.classList.add('correction-chip-priority');
+    chip.onclick = function(e) {
+        e.stopPropagation();
+        applyCorrection(originalChar, newChar);
+    };
+    return chip;
 }
 
 function extractKanji(text) {

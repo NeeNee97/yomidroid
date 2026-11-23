@@ -38,8 +38,31 @@ object KanjiSimilarity {
      * in the table (e.g. non-jōyō, kana, punctuation).
      */
     fun neighbors(ch: Char): List<Char> {
+        val kana = kanaNeighbors(ch)
+        if (kana.isNotEmpty()) return kana
         val t = table ?: return emptyList()
         val s = t[ch] ?: return emptyList()
         return s.toList()
+    }
+
+    // Kana (and a few kanji/symbols) that OCR commonly confuses, including kana whose
+    // strokes are split apart. Each string is one group of mutual lookalikes.
+    private val kanaGroups = listOf(
+        "ソンシツリノ", "ミニ二", "ハ八ヘ", "テラチ", "ヘへ", "リり", "ロ口", "カ力", "エ工", "ト卜",
+        "タ夕", "ナ十", "コ二ニ", "ケけ", "サせ", "ヨヱ", "ワウ", "ヌス",
+        "うらち", "こ二に", "たなに", "けはほ", "ぬめ", "ねれわ", "きさ", "いり", "のめ", "ふぶ"
+    )
+
+    private fun isKana(ch: Char) = ch in '\u3041'..'\u30FF'
+
+    private fun kanaNeighbors(ch: Char): List<Char> {
+        if (!isKana(ch)) return emptyList()
+        val out = LinkedHashSet<Char>()
+        for (group in kanaGroups) {
+            if (group.indexOf(ch) >= 0) {
+                for (c in group) if (c != ch) out.add(c)
+            }
+        }
+        return out.toList()
     }
 }
